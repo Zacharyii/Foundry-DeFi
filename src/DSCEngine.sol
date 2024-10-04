@@ -4,6 +4,7 @@ pragma solidity ^0.8.18;
 import {DecentralizedStableCoin} from "./DecentralizedStableCoin.sol";
 // 使用ReentrancyGuard来防止重入攻击，确保安全性
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 /*
  * @Author: 晨老斯
@@ -29,6 +30,7 @@ contract DSCEngine is ReentrancyGuard {
     error DSCEngine__NeedsMoreThanZero();
     error DSCEngine__TokenAddressesAndPriceFeedAddressesMustBeSameLength();
     error DSCEngine__NotAllowedToken();
+    error DSCEngine__TransferFailed();
 
     /////////////////  状态变量 /////////////////
     mapping(address token => address priceFeed) private s_priceFeeds; // 存储每个代币地址及其对应的价格馈送地址
@@ -36,6 +38,9 @@ contract DSCEngine is ReentrancyGuard {
 
     // 不可变的DSC合约实例，用于铸造和管理DSC。
     DecentralizedStableCoin private immutable i_dsc;
+
+    /////////////////  事件 /////////////////
+    event CollateralDeposited(address indexed user, address indexed token, uint256 indexed amount);
 
     /////////////////  修饰符 /////////////////
     // 确保传入的amount大于零。
@@ -69,7 +74,14 @@ contract DSCEngine is ReentrancyGuard {
     }
 
     /////////////////  外部函数 /////////////////
-    function depositCollateralAndMintDsc(address tokenCollateralAddress, uint256 amountCollateral)
+    function depositCollateralAndMintDsc() external {}
+
+    /*
+     * @notice 遵循CEI模式（Checks(检查),Effects(效果),Interactions(交互)）
+     * @param tokenCollateralAddress 抵押品存入的代币地址
+     * @param amountCollateral 存入的抵押品数量
+     */
+    function depositCollateral(address tokenCollateralAddress, uint256 amountCollateral)
         external
         moreThanZero(amountCollateral)
         isAllowedToken(tokenCollateralAddress)
@@ -78,9 +90,11 @@ contract DSCEngine is ReentrancyGuard {
         // 更新用户在指定代币上的存入金额
         s_collateralDeposited[msg.sender][tokenCollateralAddress] += amountCollateral;
         emit CollateralDeposited(msg.sender, tokenCollateralAddress, amountCollateral);
+        bool success = IERC20(tokenCollateralAddress).transferFrom(msg.sender, address(this), amountCollateral);
+        if (!success) {
+            revert DSCEngine__TransferFailed();
+        }
     }
-
-    function depositCollateral() external {}
 
     function redeemCollateralForDsc() external {}
 
