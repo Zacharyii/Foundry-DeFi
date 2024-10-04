@@ -3,7 +3,7 @@ pragma solidity ^0.8.18;
 
 import {DecentralizedStableCoin} from "./DecentralizedStableCoin.sol";
 // 使用ReentrancyGuard来防止重入攻击，确保安全性
-import {ReentrancyGuard} from "@openzeppelin/contracts/security/ReentrancyGuard.sol";
+import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
 /*
  * @Author: 晨老斯
@@ -18,26 +18,26 @@ import {ReentrancyGuard} from "@openzeppelin/contracts/security/ReentrancyGuard.
  *
  * 如果DAI没有治理、没有费用，并且仅由WETH和WBTC支持，那么它与DAI相似。
  *
- * 本DSC系统应始终保持“超额抵押”。
+ * 本DSC系统应始终保持超额抵押。
  * 在任何时候，所有抵押品的价值都不应低于所有DSC的美元支持价值。
  *
  * @notice 此合约基于MakerDAO DSS系统
  */
 
 contract DSCEngine is ReentrancyGuard {
-    /////////////////   Errors   /////////////////
+    /////////////////   错误定义   /////////////////
     error DSCEngine__NeedsMoreThanZero();
     error DSCEngine__TokenAddressesAndPriceFeedAddressesMustBeSameLength();
     error DSCEngine__NotAllowedToken();
 
-    /////////////////  state variables /////////////////
+    /////////////////  状态变量 /////////////////
     mapping(address token => address priceFeed) private s_priceFeeds; // 存储每个代币地址及其对应的价格馈送地址
     mapping(address user => mapping(address token => uint256 amount)) private s_collateralDeposited; //每个用户存入的抵押品数量
 
     // 不可变的DSC合约实例，用于铸造和管理DSC。
     DecentralizedStableCoin private immutable i_dsc;
 
-    /////////////////  Modifiers /////////////////
+    /////////////////  修饰符 /////////////////
     // 确保传入的amount大于零。
     modifier moreThanZero(uint256 amount) {
         if (amount == 0) {
@@ -54,7 +54,7 @@ contract DSCEngine is ReentrancyGuard {
         _;
     }
 
-    /////////////////  functions /////////////////
+    /////////////////  构造函数 /////////////////
     constructor(address[] memory tokenAddresses, address[] memory priceFeedAddresses, address dscAddress) {
         // USD Price Feeds
         if (tokenAddresses.length != priceFeedAddresses.length) {
@@ -68,13 +68,14 @@ contract DSCEngine is ReentrancyGuard {
         i_dsc = DecentralizedStableCoin(dscAddress);
     }
 
-    /////////////////  external functions /////////////////
+    /////////////////  外部函数 /////////////////
     function depositCollateralAndMintDsc(address tokenCollateralAddress, uint256 amountCollateral)
         external
         moreThanZero(amountCollateral)
         isAllowedToken(tokenCollateralAddress)
         nonReentrant
     {
+        // 更新用户在指定代币上的存入金额
         s_collateralDeposited[msg.sender][tokenCollateralAddress] += amountCollateral;
         emit CollateralDeposited(msg.sender, tokenCollateralAddress, amountCollateral);
     }
