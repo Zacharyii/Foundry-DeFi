@@ -2,9 +2,9 @@
 pragma solidity ^0.8.18;
 
 import {DecentralizedStableCoin} from "./DecentralizedStableCoin.sol";
-// 使用ReentrancyGuard来防止重入攻击，确保安全性
-import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol"; // 使用ReentrancyGuard来防止重入攻击，确保安全性
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {AggregatorV3Interface} from "lib/chainlink-brownie-contracts/contracts/src/v0.8/interfaces/AggregatorV3Interface.sol";
 
 /*
  * @Author: 晨老斯
@@ -33,8 +33,14 @@ contract DSCEngine is ReentrancyGuard {
     error DSCEngine__TransferFailed();
 
     /////////////////  状态变量 /////////////////
+    uint256 private constant ADDITIONAL_FEED_PRECISION = 1e10;
+    uint256 private constant PRECISION = 1e18;
+
     mapping(address token => address priceFeed) private s_priceFeeds; // 存储每个代币地址及其对应的价格馈送地址
     mapping(address user => mapping(address token => uint256 amount)) private s_collateralDeposited; //每个用户存入的抵押品数量
+    mapping(address user => uint256 amountDscMinted) private s_DSCMinted;
+
+    address[] private s_collateralTokens;
 
     // 不可变的DSC合约实例，用于铸造和管理DSC。
     DecentralizedStableCoin private immutable i_dsc;
@@ -45,7 +51,7 @@ contract DSCEngine is ReentrancyGuard {
     /////////////////  修饰符 /////////////////
     // 确保传入的amount大于零。
     modifier moreThanZero(uint256 amount) {
-        if (amount == 0) {
+        if (amount <= 0) {
             revert DSCEngine__NeedsMoreThanZero();
         }
         _;
@@ -68,12 +74,13 @@ contract DSCEngine is ReentrancyGuard {
         // For example ETH / USD, BTC /USD, MKR / USD, etc
         for (uint256 i = 0; i < tokenAddresses.length; i++) {
             s_priceFeeds[tokenAddresses[i]] = priceFeedAddresses[i];
+            s_collateralTokens.push(tokenAddresses[i]);
         }
         // 初始化DSC合约实例i_dsc
         i_dsc = DecentralizedStableCoin(dscAddress);
     }
 
-    /////////////////  外部函数 /////////////////
+    /////////////////  external 函数 /////////////////
     function depositCollateralAndMintDsc() external {}
 
     /*
@@ -98,11 +105,55 @@ contract DSCEngine is ReentrancyGuard {
 
     function redeemCollateralForDsc() external {}
 
-    function mintDsc() external {}
+    function redeemCollateral() external {}
+
+    /*
+     * @notice 遵从CEI
+     * @param amountDscToMint 要铸造的去中心化稳定币的数量
+     * @notice 抵押品价值必须超过最低门槛
+     */
+    function mintDsc(uint256 amountDscToMint) external moreThanZero(amountDscToMint) nonReentrant {
+        s_DSCMinted[msg.sender] += amountDscToMint;
+    }
 
     function burnDsc() external {}
 
     function liquidate() external {}
 
     function getHealthFactor() external view {}
+
+    /////////////////  private & internal view 函数 /////////////////
+    function _getAccountInformation(address user)
+        private
+        view
+        returns (uint256 totalDscMinted, uint256 collateralValueInUsd)
+    {
+        totalDscMinted = s_DSCMinted[user];
+        collateralValueInUsd = getAccountCollateralValue(user);
+    }
+
+    function _healthFactor(address user) private view returns (uint256) {
+        (uint256 totalDscMinted, uint256 collateralValueInUsd) = _getAccountInformation(user);
+    }
+
+    function _revertIfHealthFactorIsBroken(address user) internal view {}
+
+    /////////////////  public & external view 函数 /////////////////
+    function getAccountCollateralValue(address user) public view returns (uint256 totalCollateralValueInUsd) {
+        // 遍历每个抵押物代币，获取他们存入的数量，并映射到价格，以计算出美元价值
+        for (uint256 i = 0; i < s_collateralTokens.length; i++) {
+            address token = s_collateralTokens[i];
+            uint256 amount = s_collateralDeposited[user][token];
+            totalCollateralValueInUsd += getUsdValue(token, amount);
+        }
+        return totalCollateralValueInUsd;
+    }
+
+    function getUsdValue(address token, uint256 amount) public view returns (uint256) {
+        AggregatorV3Interface priceFeed = AggregatorV3Interface(s_priceFeeds[token]);
+        (, int256 price,,,) = priceFeed.latestRoundData();
+        // 假设 1ETH = $1000
+        // 从CL的返回值是 1000 * 1e8
+        return ((uint256(price) * ADDITIONAL_FEED_PRECISION) * amount) / PRECISION; // (1000 * 1e8 * (1e10)) * 1000 * 1e18
+    }
 }
