@@ -4,7 +4,8 @@ pragma solidity ^0.8.18;
 import {DecentralizedStableCoin} from "./DecentralizedStableCoin.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol"; // 使用ReentrancyGuard来防止重入攻击，确保安全性
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {AggregatorV3Interface} from "lib/chainlink-brownie-contracts/contracts/src/v0.8/interfaces/AggregatorV3Interface.sol";
+import {AggregatorV3Interface} from
+    "lib/chainlink-brownie-contracts/contracts/src/v0.8/interfaces/AggregatorV3Interface.sol";
 
 /*
  * @Author: 晨老斯
@@ -35,11 +36,11 @@ contract DSCEngine is ReentrancyGuard {
     error DSCEngine__MintFailed();
 
     /////////////////  状态变量 /////////////////
-    uint256 private constant ADDITIONAL_FEED_PRECISION = 1e10;
-    uint256 private constant PRECISION = 1e18;
-    uint256 private constant LIQUIDATION_THRESHOLD = 50;
-    uint256 private constant LIQUIDATION_PRECISION = 100;
-    uint256 private constant MIN_HEALTH_FACTOR = 1;
+    uint256 private constant ADDITIONAL_FEED_PRECISION = 1e10; // 预言机返回的价格一般是8位小数，所以要乘以1e10来增加精度。
+    uint256 private constant PRECISION = 1e18; // 以太坊的标准精度，乘以它，将比率计算转化为整数计算。
+    uint256 private constant LIQUIDATION_THRESHOLD = 50; // 清算门槛是50%，即允许使用50%的抵押品价值来借贷。
+    uint256 private constant LIQUIDATION_PRECISION = 100; // 用来和门槛进行计算时保持一致的精度，通常设置为100。
+    uint256 private constant MIN_HEALTH_FACTOR = 1; // 最小健康因子
 
     mapping(address token => address priceFeed) private s_priceFeeds; // 存储每个代币地址及其对应的价格馈送地址
     mapping(address user => mapping(address token => uint256 amount)) private s_collateralDeposited; //每个用户存入的抵押品数量
@@ -121,7 +122,7 @@ contract DSCEngine is ReentrancyGuard {
         s_DSCMinted[msg.sender] += amountDscToMint;
         _revertIfHealthFactorIsBroken(msg.sender);
         bool minted = i_dsc.mint(msg.sender, amountDscToMint);
-        if(!minted){
+        if (!minted) {
             revert DSCEngine__MintFailed();
         }
     }
@@ -143,14 +144,18 @@ contract DSCEngine is ReentrancyGuard {
     }
 
     function _healthFactor(address user) private view returns (uint256) {
+        // totalDscMinted：用户已经铸造的DSC数量（即用户从系统借出的稳定币总量）
+        // collateralValueInUsd：用户存入的抵押品总价值（以美元计）
         (uint256 totalDscMinted, uint256 collateralValueInUsd) = _getAccountInformation(user);
+        // LIQUIDATION_THRESHOLD：清算门槛,代表可以用于借贷的抵押品价值百分比。
+        // collateralAdjustedForThreshold：根据清算门槛调整用户的抵押品价值，这里(*LIQUIDATION_THRESHOLD)/LIQUIDATION_PRECISION相当于乘50%。
         uint256 collateralAdjustedForThreshold = (collateralValueInUsd * LIQUIDATION_THRESHOLD) / LIQUIDATION_PRECISION;
         return (collateralAdjustedForThreshold * PRECISION) / totalDscMinted;
     }
 
     function _revertIfHealthFactorIsBroken(address user) internal view {
         uint256 userHealthFactor = _healthFactor(user);
-        if (userHealthFactor < MIN_HEALTH_FACTOR){
+        if (userHealthFactor < MIN_HEALTH_FACTOR) {
             revert DSCEngine__BreaksHealthFactor(userHealthFactor);
         }
     }
@@ -166,11 +171,16 @@ contract DSCEngine is ReentrancyGuard {
         return totalCollateralValueInUsd;
     }
 
+    // 将用户的抵押品转换成美元价值
     function getUsdValue(address token, uint256 amount) public view returns (uint256) {
+        // priceFeed：从Chainlink预言机获取某个代币的最新美元价格
+        // price：预言机返回的价格是一个带有 8 位小数的整数
+        // amount：用户存入的代币数量
         AggregatorV3Interface priceFeed = AggregatorV3Interface(s_priceFeeds[token]);
         (, int256 price,,,) = priceFeed.latestRoundData();
-        // 假设 1ETH = $1000
-        // 从CL的返回值是 1000 * 1e8
-        return ((uint256(price) * ADDITIONAL_FEED_PRECISION) * amount) / PRECISION; // (1000 * 1e8 * (1e10)) * 1000 * 1e18
+        // 如果存入1ETH，1ETH = $1000，则从CL的返回值是 1000 * 1e8
+        // PRECISION 用来调整结果的精度，保持计算结果是以 18 位精度表示
+        // 最终的美元价值 = (1000 * 1e10 * 1) / 1e18 = 1000 USD
+        return ((uint256(price) * ADDITIONAL_FEED_PRECISION) * amount) / PRECISION; 
     }
 }
