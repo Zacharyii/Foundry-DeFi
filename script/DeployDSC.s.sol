@@ -10,7 +10,7 @@ contract DeployDSC is Script {
     address[] public tokenAddresses; // 支持的代币地址
     address[] public priceFeedAddresses; // 价格预言机地址
 
-    function run() external returns (DecentralizedStableCoin, DSCEngine) {
+    function run() external returns (DecentralizedStableCoin, DSCEngine, HelperConfig) {
         // 实例化了HelperConfig对象，用于获取当前网络的配置。
         HelperConfig config = new HelperConfig();
 
@@ -26,6 +26,6 @@ contract DeployDSC is Script {
         // 稳定币DSC的所有权被转移给DSCEngine合约，意味着DSCEngine成为唯一能够铸造或销毁DSC的合约
         dsc.transferOwnership(address(engine));
         vm.stopBroadcast();
-        return (dsc, engine);
+        return (dsc, engine, config);
     }
 }
