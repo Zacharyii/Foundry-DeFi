@@ -39,6 +39,7 @@ contract DSCEngineTest is Test {
     }
 
     //////////////////depositColleteral tests////////////////////
+    // 检查如果用户尝试存入 0 作为抵押品，DSCEngine 是否会正确地回退交易
     function testRevertsIfCollateralZero() public {
         vm.startPrank(USER); // 以用户身份开始交易
         ERC20Mock(weth).approve(address(dsce), AMOUNT_COLLATERAL); // 用户批准将 WETH 抵押到 DSCEngine
