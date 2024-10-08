@@ -53,6 +53,7 @@ contract DSCEngine is ReentrancyGuard {
 
     /////////////////  事件 /////////////////
     event CollateralDeposited(address indexed user, address indexed token, uint256 indexed amount);
+    event CollateralRedeemed(address indexed user, address indexed token, uint256 indexed amount);
 
     /////////////////  修饰符 /////////////////
     // 确保传入的amount大于零。
@@ -122,9 +123,34 @@ contract DSCEngine is ReentrancyGuard {
         }
     }
 
-    function redeemCollateralForDsc() external {}
+    /*
+     * @param tokenCollateralAddress 要赎回的抵押物地址
+     * @param amountCollateral 赎回数量
+     * @param amountDscToBurn 销毁的DSC数量
+     * @notice 销毁DSC和赎回抵押物
+     */
+    function redeemCollateralForDsc(address tokenCollateralAddress, uint256 amountCollateral, uint256 amountDscToBurn)
+        external
+    {
+        burnDsc(amountDscToBurn); //销毁DSC
+        redeemCollateral(tokenCollateralAddress, amountCollateral); //赎回抵押物
+    }
 
-    function redeemCollateral() external {}
+    // 赎回抵押品，赎回后健康因子必须大于1
+    function redeemCollateral(address tokenCollateralAddress, uint256 amountCollateral)
+        public
+        moreThanZero(amountCollateral)
+        nonReentrant
+    {
+        s_collateralDeposited[msg.sender][tokenCollateralAddress] -= amountCollateral;
+        emit CollateralRedeemed(msg.sender, tokenCollateralAddress, amountCollateral);
+        // 计算健康因子
+        bool success = IERC20(tokenCollateralAddress).transfer(msg.sender, amountCollateral);
+        if (!success) {
+            revert DSCEngine__TransferFailed();
+        }
+        _revertIfHealthFactorIsBroken(msg.sender);
+    }
 
     /*
      * @notice 遵从CEI
@@ -140,7 +166,15 @@ contract DSCEngine is ReentrancyGuard {
         }
     }
 
-    function burnDsc() external {}
+    function burnDsc(uint256 amount) public moreThanZero(amount) {
+        s_DSCMinted[msg.sender] -= amount;
+        bool success = i_dsc.transferFrom(msg.sender, address(this), amount);
+        if (!success) {
+            revert DSCEngine__TransferFailed();
+        }
+        i_dsc.burn(amount);
+        _revertIfHealthFactorIsBroken(msg.sender);
+    }
 
     function liquidate() external {}
 
