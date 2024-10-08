@@ -34,13 +34,15 @@ contract DSCEngine is ReentrancyGuard {
     error DSCEngine__TransferFailed();
     error DSCEngine__BreaksHealthFactor(uint256 healthFactor);
     error DSCEngine__MintFailed();
+    error DSCEngine__HealthFactorOk();
 
     /////////////////  状态变量 /////////////////
     uint256 private constant ADDITIONAL_FEED_PRECISION = 1e10; // 预言机返回的价格一般是8位小数，所以要乘以1e10来增加精度。
     uint256 private constant PRECISION = 1e18; // 以太坊的标准精度，乘以它，将比率计算转化为整数计算。
     uint256 private constant LIQUIDATION_THRESHOLD = 50; // 清算门槛是50%，即允许使用50%的抵押品价值来借贷。
     uint256 private constant LIQUIDATION_PRECISION = 100; // 用来和门槛进行计算时保持一致的精度，通常设置为100。
-    uint256 private constant MIN_HEALTH_FACTOR = 1; // 最小健康因子
+    uint256 private constant MIN_HEALTH_FACTOR = 1e18; // 最小健康因子
+    uint256 private constant LIQUIDATION_BONUS = 10;
 
     mapping(address token => address priceFeed) private s_priceFeeds; // 存储每个代币地址及其对应的价格馈送地址
     mapping(address user => mapping(address token => uint256 amount)) private s_collateralDeposited; //每个用户存入的抵押品数量
@@ -176,7 +178,33 @@ contract DSCEngine is ReentrancyGuard {
         _revertIfHealthFactorIsBroken(msg.sender);
     }
 
-    function liquidate() external {}
+    /* 
+     * @param collateral：用户用于抵押的ERC20代币的地址。
+     * @param user：被清算的用户地址。其健康因子低于预设值，说明该用户资不抵债。
+     * @param debtToCover：清算者希望销毁的DSC（去中心化稳定币）的数量，用以覆盖用户的部分债务。
+     * @notice 当用户的健康因子（抵押品价值与债务的比率）低于设定的最小值时，清算该用户并给予清算者奖励。
+     * @notice 清算者可以销毁一定数量的DSC来清算用户部分或全部的抵押品。
+     * @notice 清算者将获得清算奖励，奖励额为用户被清算的抵押品价值的10%。
+     * @notice 一个已知的问题是，如果协议的抵押率低于或等于100%，我们将无法激励清算者
+     * 例如，如果抵押品的价格在清算之前暴跌，我们将无法及时清算用户
+     */
+    function liquidate(address collateral, address user, uint256 debtToCover)
+        external
+        moreThanZero(debtToCover)
+        nonReentrant
+    {
+        uint256 startingUserHealthFactor = _healthFactor(user);
+        if (startingUserHealthFactor > MIN_HEALTH_FACTOR) {
+            revert DSCEngine__HealthFactorOk();
+        }
+        //将美元债务（debtToCover）转换为用户抵押的代币数量
+        //根据抵押品的当前价格，清算者需要销毁一定数量的DSC，来获得相应价值的抵押品。
+        uint256 tokenAmountFromDebtCovered = getTokenAmountFromUsd(collateral, debtToCover);
+        //清算奖励
+        uint256 bonusCollateral = (tokenAmountFromDebtCovered * LIQUIDATION_BONUS) / LIQUIDATION_PRECISION;
+        //清算者可以赎回的总抵押品数量，等于债务对应的抵押品数量加上清算奖励。
+        uint256 totalCollateralToRedeem = tokenAmountFromDebtCovered + bonusCollateral;
+    }
 
     function getHealthFactor() external view {}
 
@@ -208,6 +236,16 @@ contract DSCEngine is ReentrancyGuard {
     }
 
     /////////////////  public & external view 函数 /////////////////
+    // 将美元债务（以Wei为单位）转换为用户抵押的代币数量。
+    function getTokenAmountFromUsd(address token, uint256 usdAmountInWei) public view returns (uint256) {
+        //s_priceFeeds[token] 是存储每种代币的价格预言机地址的映射。
+        AggregatorV3Interface priceFeed = AggregatorV3Interface(s_priceFeeds[token]);
+        //priceFeed.latestRoundData() 获取该代币的最新价格。
+        (, int256 price,,,) = priceFeed.latestRoundData();
+        
+        return (usdAmountInWei * PRECISION) / (uint256(price) * ADDITIONAL_FEED_PRECISION);
+    }
+
     function getAccountCollateralValue(address user) public view returns (uint256 totalCollateralValueInUsd) {
         // 遍历每个抵押物代币，获取他们存入的数量，并映射到价格，以计算出美元价值
         for (uint256 i = 0; i < s_collateralTokens.length; i++) {
