@@ -87,7 +87,20 @@ contract DSCEngine is ReentrancyGuard {
     }
 
     /////////////////  external 函数 /////////////////
-    function depositCollateralAndMintDsc() external {}
+    /*
+     * @param tokenCollateralAddress 作为抵押物的代币地址
+     * @param amountCollateral 存入的抵押物数量
+     * @param amountDscToMint 要铸造的DSC数量
+     * @notice 用于存入抵押物和铸造DSC
+     */
+    function depositCollateralAndMintDsc(
+        address tokenCollateralAddress,
+        uint256 amountCollateral,
+        uint256 amountDscMint
+    ) external {
+        depositCollateral(tokenCollateralAddress, amountCollateral);
+        mintDsc(amountDscMint);
+    }
 
     /*
      * @notice 遵循CEI模式（Checks(检查),Effects(效果),Interactions(交互)）
@@ -95,7 +108,7 @@ contract DSCEngine is ReentrancyGuard {
      * @param amountCollateral 存入的抵押品数量
      */
     function depositCollateral(address tokenCollateralAddress, uint256 amountCollateral)
-        external
+        public
         moreThanZero(amountCollateral)
         isAllowedToken(tokenCollateralAddress)
         nonReentrant
@@ -118,7 +131,7 @@ contract DSCEngine is ReentrancyGuard {
      * @param amountDscToMint 要铸造的去中心化稳定币的数量
      * @notice 抵押品价值必须超过最低门槛
      */
-    function mintDsc(uint256 amountDscToMint) external moreThanZero(amountDscToMint) nonReentrant {
+    function mintDsc(uint256 amountDscToMint) public moreThanZero(amountDscToMint) nonReentrant {
         s_DSCMinted[msg.sender] += amountDscToMint;
         _revertIfHealthFactorIsBroken(msg.sender);
         bool minted = i_dsc.mint(msg.sender, amountDscToMint);
@@ -181,6 +194,6 @@ contract DSCEngine is ReentrancyGuard {
         // 如果存入1ETH，1ETH = $1000，则从CL的返回值是 1000 * 1e8
         // PRECISION 用来调整结果的精度，保持计算结果是以 18 位精度表示
         // 最终的美元价值 = (1000 * 1e10 * 1) / 1e18 = 1000 USD
-        return ((uint256(price) * ADDITIONAL_FEED_PRECISION) * amount) / PRECISION; 
+        return ((uint256(price) * ADDITIONAL_FEED_PRECISION) * amount) / PRECISION;
     }
 }
