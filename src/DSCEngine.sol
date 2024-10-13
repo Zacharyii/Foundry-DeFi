@@ -212,8 +212,6 @@ contract DSCEngine is ReentrancyGuard {
         _revertIfHealthFactorIsBroken(msg.sender);
     }
 
-    function getHealthFactor() external view {}
-
     /////////////////  private & internal view 函数 /////////////////
     /*
      * @param amountDscToBurn：要销毁的DSC数量
@@ -272,6 +270,28 @@ contract DSCEngine is ReentrancyGuard {
         }
     }
 
+    function _getUsdValue(address token, uint256 amount) private view returns (uint256) {
+        // priceFeed：从Chainlink预言机获取某个代币的最新美元价格
+        // price：预言机返回的价格是一个带有 8 位小数的整数
+        // amount：用户存入的代币数量
+        AggregatorV3Interface priceFeed = AggregatorV3Interface(s_priceFeeds[token]);
+        (, int256 price,,,) = priceFeed.latestRoundData();
+        // 如果存入1ETH，1ETH = $1000，则从CL的返回值是 1000 * 1e8
+        // PRECISION 用来调整结果的精度，保持计算结果是以 18 位精度表示
+        // 最终的美元价值 = (1000 * 1e10 * 1) / 1e18 = 1000 USD
+        return ((uint256(price) * ADDITIONAL_FEED_PRECISION) * amount) / PRECISION;
+    }
+
+    function _calculateHealthFactor(uint256 totalDscMinted, uint256 collateralValueInUsd)
+        internal
+        pure
+        returns (uint256)
+    {
+        if (totalDscMinted == 0) return type(uint256).max;
+        uint256 collateralAdjustedForThreshold = (collateralValueInUsd * LIQUIDATION_THRESHOLD) / LIQUIDATION_PRECISION;
+        return (collateralAdjustedForThreshold * PRECISION) / totalDscMinted;
+    }
+
     /////////////////  public & external view 函数 /////////////////
     // 将美元债务（以Wei为单位）转换为用户抵押的代币数量。
     function getTokenAmountFromUsd(address token, uint256 usdAmountInWei) public view returns (uint256) {
@@ -288,25 +308,73 @@ contract DSCEngine is ReentrancyGuard {
         for (uint256 i = 0; i < s_collateralTokens.length; i++) {
             address token = s_collateralTokens[i];
             uint256 amount = s_collateralDeposited[user][token];
-            totalCollateralValueInUsd += getUsdValue(token, amount);
+            totalCollateralValueInUsd += _getUsdValue(token, amount);
         }
         return totalCollateralValueInUsd;
     }
 
     // 将用户的抵押品转换成美元价值
     function getUsdValue(address token, uint256 amount) public view returns (uint256) {
-        // priceFeed：从Chainlink预言机获取某个代币的最新美元价格
-        // price：预言机返回的价格是一个带有 8 位小数的整数
-        // amount：用户存入的代币数量
-        AggregatorV3Interface priceFeed = AggregatorV3Interface(s_priceFeeds[token]);
-        (, int256 price,,,) = priceFeed.latestRoundData();
-        // 如果存入1ETH，1ETH = $1000，则从CL的返回值是 1000 * 1e8
-        // PRECISION 用来调整结果的精度，保持计算结果是以 18 位精度表示
-        // 最终的美元价值 = (1000 * 1e10 * 1) / 1e18 = 1000 USD
-        return ((uint256(price) * ADDITIONAL_FEED_PRECISION) * amount) / PRECISION;
+        return _getUsdValue(token, amount);
     }
 
-    function getAccountInformation(address user) external view returns (uint256 totalDscMinted, uint256 collateralValueInUsd) {
-        (totalDscMinted, collateralValueInUsd) = _getAccountInformation(user);
+    function getAccountInformation(address user)
+        external
+        view
+        returns (uint256 totalDscMinted, uint256 collateralValueInUsd)
+    {
+        return _getAccountInformation(user);
+    }
+
+    function calculateHealthFactor(uint256 totalDscMinted, uint256 collateralValueInUsd)
+        external
+        pure
+        returns (uint256)
+    {
+        return _calculateHealthFactor(totalDscMinted, collateralValueInUsd);
+    }
+
+    function getCollateralBalanceOfUser(address user, address token) external view returns (uint256) {
+        return s_collateralDeposited[user][token];
+    }
+
+    function getPrecision() external pure returns (uint256) {
+        return PRECISION;
+    }
+
+    function getAdditionalFeedPrecision() external pure returns (uint256) {
+        return ADDITIONAL_FEED_PRECISION;
+    }
+
+    function getLiquidationThreshold() external pure returns (uint256) {
+        return LIQUIDATION_THRESHOLD;
+    }
+
+    function getLiquidationBonus() external pure returns (uint256) {
+        return LIQUIDATION_BONUS;
+    }
+
+    function getLiquidationPrecision() external pure returns (uint256) {
+        return LIQUIDATION_PRECISION;
+    }
+
+    function getMinHealthFactor() external pure returns (uint256) {
+        return MIN_HEALTH_FACTOR;
+    }
+
+    function getCollateralTokens() external view returns (address[] memory) {
+        return s_collateralTokens;
+    }
+
+    function getDsc() external view returns (address) {
+        return address(i_dsc);
+    }
+
+    function getCollateralTokenPriceFeed(address token) external view returns (address) {
+        return s_priceFeeds[token];
+    }
+
+    function getHealthFactor(address user) external view returns (uint256) {
+        return _healthFactor(user);
     }
 }

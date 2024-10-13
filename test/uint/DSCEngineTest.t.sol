@@ -10,12 +10,18 @@ import {ERC20Mock} from "../../lib/openzeppelin-contracts/contracts/mocks/ERC20M
 
 contract DSCEngineTest is Test {
     DeployDSC deployer; //用于部署 DSC 和 DSCEngine 的 DeployDSC 实例
-    DecentralizedStableCoin dsc; //已部署的 DecentralizedStableCoin 实例
-    DSCEngine dsce; //已部署的 DSCEngine 实例
-    HelperConfig config; //用于获取价格预言机和 WETH 地址
-    address ethUsdPriceFeed; //ETH/USD 的价格预言机地址
-    address btcUsdPriceFeed; //BTC/USD 的价格预言机地址
-    address weth; //WETH 代币的地址
+    DecentralizedStableCoin public dsc; //已部署的 DecentralizedStableCoin 实例
+    DSCEngine public dsce; //已部署的 DSCEngine 实例
+    HelperConfig public config; //用于获取价格预言机和 WETH 地址
+    address public ethUsdPriceFeed; //ETH/USD 的价格预言机地址
+    address public btcUsdPriceFeed; //BTC/USD 的价格预言机地址
+    address public weth; //WETH 代币的地址
+    address public wbtc;
+    uint256 public deployerKey;
+
+    uint256 amountCollateral = 10 ether;
+    uint256 amountToMint = 100 ether;
+    address public user = address(1);    
 
     address public USER = makeAddr("user"); //用于模拟测试环境中的用户地址
     uint256 public constant AMOUNT_COLLATERAL = 10 ether; //用户提供的抵押物数量
@@ -110,4 +116,11 @@ contract DSCEngineTest is Test {
         assertEq(totalDscMinted, expectedTotalDscMinted);
         assertEq(AMOUNT_COLLATERAL, expectedDepositAmount);
     }
+
+    function testCanDepositCollateralWithoutMinting() public depositedCollateral {
+        uint256 userBalance = dsc.balanceOf(user);
+        assertEq(userBalance, 0);
+    }  
+    
+      
 }
