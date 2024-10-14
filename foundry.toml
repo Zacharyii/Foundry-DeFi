@@ -8,8 +8,8 @@ remapping = [
 ]
 
 [invariant]
-runs = 128
-depth = 128
-fail_on_revert = false
+runs = 1000#在不变量测试中进行的测试次数
+depth = 128#在每次测试运行中，单个交易可以触发的最大函数调用层级数
+fail_on_revert = true#是否将交易的revert（回退）视为测试失败
 
 # See more config options https://github.com/foundry-rs/foundry/blob/master/crates/config/README.md#all-options
